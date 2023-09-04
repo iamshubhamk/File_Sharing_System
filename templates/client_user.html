@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>User Dashboard</title>
+</head>
+<body>
+    <h1>Welcome to the User Dashboard</h1>
+
+    <a class="nav-item nav-link" href="{{ url_for('signup') }}">Sign Up</a>
+    <a class="nav-item nav-link" href="{{ url_for('verify_email') }}">Email Verification</a>
+    <a class="nav-item nav-link" href="{{ url_for('login') }}">Login</a>
+    <a class="nav-item nav-link" href="{{ url_for('list_files') }}">Uploaded Files</a>
+    <a class="nav-item nav-link" href="{{ url_for('upload') }}">File Upload</a>
+</body>
+</html>

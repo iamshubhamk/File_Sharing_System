@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        .container {
+            display: flex;
+            align-items: center;
+        }
+
+        .div1, .div2 {
+            padding: 10px;
+            border: 1px solid #000;
+            margin-right: 20px;
+        }
+    </style>
+    <title>Home</title>
+</head>
+<body>
+    <div class="container">
+    <div>
+    <a href="{{ url_for('oprational_user') }}">
+        <img src="{{ url_for('static', filename='images/ops_icon.jpg') }}" alt="For Ops User" width="300" height="200">
+    </a>
+    </div>
+    <div>
+    <a href="{{ url_for('client_user') }}">
+        <img src="{{ url_for('static', filename='images/client_icon.jpg') }}" alt="For Client User" width="300" height="200">
+    </a>
+    </div>
+    </div>
+
+</body>
+</html>

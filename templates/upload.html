@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Upload Files</title>
+</head>
+<body>
+    <h1>Upload Files</h1>
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            <ul class="messages">
+                {% for message in messages %}
+                    <li>{{ message }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    {% endwith %}
+    <form method="POST" enctype="multipart/form-data">
+        <input type="file" name="file" accept=".pptx, .docx, .xlsx" required>
+        <input type="submit" value="Upload">
+    </form>
+    <a href="{{ url_for('list_files') }}">List Uploaded Files</a>
+</body>
+</html>
