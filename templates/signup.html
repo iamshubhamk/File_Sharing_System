@@ -2,14 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>Login</title>
+    <title>Signup</title>
   </head>
   <body>
-    <h1>Login</h1>
-    <form action="/login" method="post">
+    <h1>Signup</h1>
+    <form action="/signup" method="post">
       <input type="text" name="username" placeholder="Username" required><br>
       <input type="password" name="password" placeholder="Password" required><br>
-      <input type="submit" value="Login">
+      <select name="role">
+        <option value="server_side_user">Server Side User</option>
+        <option value="client_user">Client User</option>
+      </select><br>
+      <input type="submit" value="Signup">
     </form>
     {% with messages = get_flashed_messages() %}
       {% if messages %}

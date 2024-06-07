@@ -1,160 +1,135 @@
-from flask import Flask, render_template, flash, redirect, url_for, jsonify, request, session
-from flask_sqlalchemy import SQLAlchemy
-from flask import Flask, render_template, request, flash, redirect, url_for, send_file
-from flask_mail import Mail, Message
+from flask import Flask, request, redirect, url_for, render_template, session, send_file, flash
+from pymongo import MongoClient
+from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 import os
-import secrets
-import hashlib
-from flask_uploads import UploadSet, configure_uploads, TEXT, DOCUMENTS, DATA
+from bson import ObjectId
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'  # Replace with a strong secret key
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db' 
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['MAIL_SERVER'] = 'smtp.example.com'  # Replace with your email server's SMTP details
-app.config['MAIL_PORT'] = 587
-app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = 'your_email@example.com'
-app.config['MAIL_PASSWORD'] = 'your_email_password'
-app.config['UPLOADS_DEFAULT_DEST'] = 'uploads' 
-app.config['UPLOADED_TEXT_DEST'] = 'uploads'
-app.config['UPLOADED_DOCUMENTS_DEST'] = 'uploads'
-app.config['UPLOADED_DATA_DEST'] = 'uploads'
+app.secret_key = os.urandom(24)
 
-db = SQLAlchemy(app)
-mail = Mail(app)
-text_files = UploadSet('text', TEXT)
-document_files = UploadSet('document', DOCUMENTS)
-data_files = UploadSet('data', DATA)
+app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['MAX_CONTENT_PATH'] = 16 * 1024 * 1024  # 16 MB limit
 
-configure_uploads(app, (text_files, document_files, data_files))
+client = MongoClient('mongodb://localhost:27017/')
+db = client['file_sharing']
+users_collection = db['users']
+files_collection = db['files']
 
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password = db.Column(db.String(120), nullable=False)
-    verified = db.Column(db.Boolean, default=False)
-    verification_token = db.Column(db.String(120), unique=True, nullable=False)
+if not os.path.exists(app.config['UPLOAD_FOLDER']):
+    os.makedirs(app.config['UPLOAD_FOLDER'])
+
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
 
 
-def generate_verification_token():
-    return secrets.token_hex(16)
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-@app.route('/home')
+@app.route('/')
 def home():
     return render_template('home.html')
 
-@app.route('/ops_user', methods = ['GET','POST'])
-def oprational_user():
-    return render_template('ops_user.html')
-
-@app.route('/client_user')
-def client_user():
-    return render_template('client_user.html')
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     if request.method == 'POST':
         username = request.form['username']
-        email = request.form['email']
         password = request.form['password']
+        role = request.form['role']  # 'server_side_user' or 'client_user'
         
-        # Check if the email already exists
-        existing_user = User.query.filter_by(email=email).first()
-        if existing_user:
-            flash('Email already exists. Please use a different email or log in.', 'danger')
-        else:
-            # Generate a verification token and create a new user
-            verification_token = generate_verification_token()
-            new_user = User(username=username, email=email, password=password, verification_token=verification_token)
-            db.session.add(new_user)
-            db.session.commit()
-            
-            # Send a verification email
-            send_verification_email(email, verification_token)
-            
-            flash('A verification email has been sent to your email address. Please verify your account.', 'success')
-            return redirect(url_for('login'))
-
+        if users_collection.find_one({'username': username}):
+            flash('Username already exists')
+            return redirect(url_for('signup'))
+        
+        hashed_password = generate_password_hash(password)
+        users_collection.insert_one({'username': username, 'password': hashed_password, 'role': role})
+        flash('Signup successful, please login')
+        return redirect(url_for('login'))
     return render_template('signup.html')
-
-# Function to send a verification email
-def send_verification_email(email, token):
-    msg = Message('Email Verification', sender='your_email@example.com', recipients=[email])
-    msg.body = f"Click the following link to verify your email: {url_for('verify_email', token=token, _external=True)}"
-    mail.send(msg)
-
-@app.route('/verify_email/<token>')
-def verify_email(token):
-    user = User.query.filter_by(verification_token=token).first()
-    if user:
-        user.verified = True
-        user.verification_token = None
-        db.session.commit()
-        flash('Email verified successfully. You can now log in.', 'success')
-    else:
-        flash('Invalid verification token. Please check your email or sign up again.', 'danger')
-    
-    return redirect(url_for('login'))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        email = request.form['email']
+        username = request.form['username']
         password = request.form['password']
         
-        user = User.query.filter_by(email=email).first()
-        
-        if user and user.password == password and user.verified:
-            session['user_id'] = user.id
-            flash('Logged in successfully!', 'success')
+        user = users_collection.find_one({'username': username})
+        if user and check_password_hash(user['password'], password):
+            session['username'] = username
+            session['role'] = user['role']
             return redirect(url_for('dashboard'))
-        else:
-            flash('Login failed. Please check your email and password or verify your email if you haven\'t already.', 'danger')
-
+        flash('Invalid credentials')
     return render_template('login.html')
 
 @app.route('/dashboard')
 def dashboard():
-    if 'user_id' in session:
-        user_id = session['user_id']
-        user = User.query.get(user_id)
-        if user:
-            return f'Welcome, {user.username}! This is your dashboard.'
+    if 'username' not in session:
+        return redirect(url_for('login'))
     
-    flash('Please log in to access your dashboard.', 'danger')
+    files = files_collection.find()
+    return render_template('dashboard.html', username=session['username'], role=session['role'], files=files)
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+    
+    if request.method == 'POST':
+        file = request.files['file']
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            file_id = files_collection.insert_one({
+                'username': session['username'],
+                'filename': filename,
+                'file_size': len(file.read()),  # Store file size if needed
+                'content_type': file.content_type  # Store content type if needed
+            }).inserted_id
+            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))  # Save file to upload folder
+            flash('File uploaded successfully')
+        else:
+            flash('Invalid file format')
+    return redirect(url_for('dashboard'))
+
+@app.route('/download/<file_id>')
+def download_file(file_id):
+    try:
+        file_object = files_collection.find_one({'_id': ObjectId(file_id)})
+        if file_object:
+            file_path = file_object['file_path']
+            return send_file(file_path, as_attachment=True)
+        else:
+            flash('File not found')
+            return redirect(url_for('dashboard'))
+    except Exception as e:
+        flash(f'Error: {str(e)}')
+        return redirect(url_for('dashboard'))
+
+@app.route('/delete/<file_id>', methods=['POST'])
+def delete_file(file_id):
+    if 'username' not in session:
+        return redirect(url_for('login'))
+    
+    file = files_collection.find_one({'_id': ObjectId(file_id)})
+    if file:
+        if file['username'] == session['username']:
+            # Delete file from MongoDB and optionally from file system
+            files_collection.delete_one({'_id': ObjectId(file_id)})
+            flash('File deleted successfully')
+            # Optionally delete from file system
+            # os.remove(os.path.join(app.config['UPLOAD_FOLDER'], file['filename']))
+        else:
+            flash('Unauthorized to delete this file')
+    else:
+        flash('File not found')
+    
+    return redirect(url_for('dashboard'))
+
+@app.route('/logout')
+def logout():
+    session.pop('username', None)
+    session.pop('role', None)
     return redirect(url_for('login'))
 
-@app.route('/upload', methods=['GET', 'POST'])
-def upload_file():
-    if request.method == 'POST' and 'file' in request.files:
-        file = request.files['file']
 
-        if file:
-            filename = file.filename
-            file.save(os.path.join(app.config['UPLOADS_DEFAULT_DEST'], filename))
-            flash('File uploaded successfully!', 'success')
-        else:
-            flash('No file selected.', 'danger')
-
-    return render_template('upload.html')
-
-@app.route('/download/<filename>')
-def download_file(filename):
-    try:
-        return send_file(os.path.join(app.config['UPLOADS_DEFAULT_DEST'], filename), as_attachment=True)
-    except FileNotFoundError:
-        flash('File not found.', 'danger')
-        return redirect(url_for('upload_file'))
-
-@app.route('/list_files')
-def list_files():
-    uploaded_files = os.listdir(app.config['UPLOADS_DEFAULT_DEST'])
-    return render_template('list_files.html', files=uploaded_files)
-
-
-
-if __name__ == '__main__':
-    db.create_all()
+if __name__=='__main__':
     app.run(debug=True)
